@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generate MCQs</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f8f9fa; /* Set background color */
+        }
+        .container {
+            width: 80%; 
+            max-width: 600px;
+            height: auto;
+            margin: 0 auto; 
+            box-sizing: border-box; /* Include padding and border in the element's total width and height */
+            border: 1px solid #000; /* Optional border to visualize the container */
+            text-align: center;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.2); /* Increase box shadow effect */
+            background-color: #ffffff; /* Set background color */
+        }
+        .side-text {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 24px;
+            font-weight: bold;
+            color: #343a40; /* Set text color */
+        }
+        .left-side-text {
+            left: 20px;
+        }
+        .right-side-text {
+            right: 20px;
+        }
+        .p{
+            font-family:OpenSans, Arial, sans-serif;                
+            font-size: 16px;
+            font-weight: 300;
+        }
+    </style>
+</head>
+<body>
+<!--   # here add nav -->
+    <div class="container">
+        <h1 class="mb-4">Generate MCQs</h1>
+        <p class="lead">Upload a PDF generate MCQs.</p>
+        <form method="POST" enctype="multipart/form-data">
+            <div class="form-group" style="margin-top:50px;">
+                <label for="file">Upload PDF</label>
+                <input type="file" class="form-control-file" id="file" name="files[]" multiple style="margin-left:41%">
+            </div>
+            <div class="form-group">
+                <label for="num_questions">Number of Questions:</label>
+                <select style="margin-left:45%;background:black; color:white;width:10%" class="form-control" id="num_questions" name="num_questions">
+                    <option value="5">5</option>
+                    <option value="10">10</option>
+                    <option value="15">15</option>
+                    <option value="20">20</option>
+                </select>
+            </div>
+            <button type="submit" class="btn btn-primary">Generate MCQs</button>
+        </form>
+    </div>
+</body>
+</html>
