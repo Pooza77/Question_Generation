@@ -1,137 +1,186 @@
-
-from flask import Flask, render_template, request,make_response
-from flask_bootstrap import Bootstrap
+import streamlit as st
 import spacy
-from collections import Counter
 import random
-import PyPDF2
-from PyPDF2 import PdfReader,PdfWriter  # Import PdfReader
+from collections import Counter
+from pypdf import PdfReader
 
+# ---------------- MODEL ----------------
+@st.cache_resource
+def load_model():
+    return spacy.load("en_core_web_sm")
 
-app = Flask(__name__)
-Bootstrap(app)
+nlp = load_model()
 
-# Load English tokenizer, tagger, parser, NER, and word vectors
-nlp = spacy.load("en_core_web_sm")
+# ---------------- PDF TEXT ----------------
+def extract_text_from_pdf(pdf_file):
+    reader = PdfReader(pdf_file)
+    text = ""
+    for page in reader.pages:
+        page_text = page.extract_text()
+        if page_text:
+            text += page_text + "\n"
+    return text
 
-def generate_mcqs(text, num_questions=5):
-    # text = clean_text(text)
-    if text is None:
+# ---------------- DIFFICULTY ----------------
+def get_difficulty(sentence):
+    words = len(sentence.split())
+
+    if words < 10:
+        return "low"
+    elif words < 20:
+        return "medium"
+    else:
+        return "high"
+
+# ---------------- MCQ GENERATOR ----------------
+def generate_mcqs(text, num_questions=5, level="medium"):
+
+    if not text:
         return []
 
-    # Process the text with spaCy
     doc = nlp(text)
+    sentences = [sent.text.strip() for sent in doc.sents]
 
-    # Extract sentences from the text
-    sentences = [sent.text for sent in doc.sents]
+    # filter by level
+    filtered = [s for s in sentences if get_difficulty(s) == level]
 
-    # Ensure that the number of questions does not exceed the number of sentences
-    num_questions = min(num_questions, len(sentences))
+    # fallback if not enough
+    if len(filtered) < 2:
+        filtered = sentences
 
-    # Randomly select sentences to form questions
-    selected_sentences = random.sample(sentences, num_questions)
+    selected = random.sample(filtered, min(num_questions, len(filtered)))
 
-    # Initialize list to store generated MCQs
     mcqs = []
 
-    # Generate MCQs for each selected sentence
-    for sentence in selected_sentences:
-        # Process the sentence with spaCy
+    for sentence in selected:
+
         sent_doc = nlp(sentence)
 
-        # Extract entities (nouns) from the sentence
         nouns = [token.text for token in sent_doc if token.pos_ == "NOUN"]
 
-        # Ensure there are enough nouns to generate MCQs
         if len(nouns) < 2:
             continue
 
-        # Count the occurrence of each noun
-        noun_counts = Counter(nouns)
+        answer = Counter(nouns).most_common(1)[0][0]
 
-        # Select the most common noun as the subject of the question
-        if noun_counts:
-            subject = noun_counts.most_common(1)[0][0]
+        question = sentence.replace(answer, "________", 1)
 
-            # Generate the question stem
-            question_stem = sentence.replace(subject, "______")
+        distractors = list(set(nouns) - {answer})
 
-            # Generate answer choices
-            answer_choices = [subject]
+        while len(distractors) < 3:
+            distractors.append("None of the above")
 
-            # Add some random words from the text as distractors
-            distractors = list(set(nouns) - {subject})
+        random.shuffle(distractors)
 
-            # Ensure there are at least three distractors
-            while len(distractors) < 3:
-                distractors.append("None of the above")  # Placeholder for missing distractors
+        choices = [answer] + distractors[:3]
+        random.shuffle(choices)
 
-            random.shuffle(distractors)
-            for distractor in distractors[:3]:
-                answer_choices.append(distractor)
-
-            # Shuffle the answer choices
-            random.shuffle(answer_choices)
-
-            # Append the generated MCQ to the list
-            correct_answer = chr(64 + answer_choices.index(subject) + 1)  # Convert index to letter
-            mcqs.append((question_stem, answer_choices, correct_answer))
+        mcqs.append({
+            "question": question,
+            "choices": choices,
+            "answer": answer,
+            "difficulty": get_difficulty(sentence)
+        })
 
     return mcqs
 
 
+# ---------------- SESSION STATE ----------------
+if "submitted" not in st.session_state:
+    st.session_state.submitted = False
 
+if "mcqs" not in st.session_state:
+    st.session_state.mcqs = []
 
+# ---------------- UI ----------------
+st.title("🧠 AI MCQ Quiz Generator")
 
-@app.route('/', methods=['GET', 'POST'])
-def index():
-    if request.method == 'POST':
-        text = ""
+uploaded_file = st.file_uploader("📄 Upload PDF", type=["pdf"])
+text_input = st.text_area("✍️ OR Enter Text", height=200)
 
-        # Check if files were uploaded
-        if 'files[]' in request.files:
-            files = request.files.getlist('files[]')
-            for file in files:
-                if file.filename.endswith('.pdf'):
-                    # Process PDF file
-                    text += process_pdf(file)
-                elif file.filename.endswith('.txt'):
-                    # Process text file
-                    text += file.read().decode('utf-8')
-        else:
-            # Process manual input
-            text = request.form['text']
+num_questions = st.slider("🎯 Number of Questions", 1, 20, 5)
 
-        # Get the selected number of questions from the dropdown menu
-        num_questions = int(request.form['num_questions'])
+level = st.selectbox(
+    "🎚️ Choose Difficulty Level",
+    ["low", "medium", "high"]
+)
 
-        mcqs = generate_mcqs(text, num_questions=num_questions)  # Pass the selected number of questions
-        print(mcqs)
-        # Ensure each MCQ is formatted correctly as (question_stem, answer_choices, correct_answer)
-        mcqs_with_index = [(i + 1, mcq) for i, mcq in enumerate(mcqs)]
-        return render_template('mcqs.html', mcqs=mcqs_with_index)
+# ---------------- TEXT SOURCE ----------------
+text = ""
 
-    return render_template('index.html')
+if uploaded_file:
+    text = extract_text_from_pdf(uploaded_file)
+    st.success("PDF Loaded Successfully!")
 
+elif text_input:
+    text = text_input
 
+# ---------------- GENERATE ----------------
+if st.button("Generate MCQs"):
 
+    st.session_state.mcqs = generate_mcqs(text, num_questions, level)
+    st.session_state.submitted = False
 
-def process_pdf(file):
-    # Initialize an empty string to store the extracted text
-    text = ""
+    if not st.session_state.mcqs:
+        st.warning("Not enough content to generate MCQs.")
 
-    # Create a PyPDF2 PdfReader object
-    pdf_reader = PdfReader(file)
+# ---------------- QUIZ MODE ----------------
+if st.session_state.mcqs:
 
-    # Loop through each page of the PDF
-    for page_num in range(len(pdf_reader.pages)):
-        # Extract text from the current page
-        page_text = pdf_reader.pages[page_num].extract_text()
-        # Append the extracted text to the overall text
-        text += page_text
+    st.subheader("📘 Quiz Mode")
 
-    return text
+    for i, mcq in enumerate(st.session_state.mcqs):
 
+        st.write(f"### Q{i+1}")
+        st.write(mcq["question"])
 
-if __name__ == '__main__':
-    app.run(debug=True)
+        st.radio(
+            "Select your answer:",
+            mcq["choices"],
+            key=f"q_{i}",
+            disabled=st.session_state.submitted
+        )
+
+# ---------------- SUBMIT ----------------
+if st.session_state.mcqs and not st.session_state.submitted:
+
+    if st.button("Submit Answers"):
+
+        score = 0
+
+        for i, mcq in enumerate(st.session_state.mcqs):
+
+            if st.session_state[f"q_{i}"] == mcq["answer"]:
+                score += 1
+
+        st.session_state.score = score
+        st.session_state.total = len(st.session_state.mcqs)
+        st.session_state.submitted = True
+
+# ---------------- RESULT ----------------
+if st.session_state.submitted:
+
+    st.success(f"🎯 Your Score: {st.session_state.score} / {st.session_state.total}")
+
+    st.subheader("📊 Review Answers")
+
+    for i, mcq in enumerate(st.session_state.mcqs):
+
+        st.write(f"### Q{i+1}")
+        st.write(mcq["question"])
+
+        user_ans = st.session_state[f"q_{i}"]
+        correct_ans = mcq["answer"]
+
+        for option in mcq["choices"]:
+
+            if option == correct_ans:
+                st.markdown(f"🟢 **{option} (Correct Answer)**")
+
+            elif option == user_ans and user_ans != correct_ans:
+                st.markdown(f"🔴 **{option} (Your Answer)**")
+
+            else:
+                st.write(option)
+
+        st.divider()
